@@ -7,7 +7,15 @@ import { delivery } from "./repositories/delivery.js";
 import { summaryText } from "./commands/index.js";
 
 function offsetName(hours) {
-  return hours === 12 ? "H-12 jam" : `H-${hours / 24} hari`;
+  if (hours === 0.5) return "H-30 menit";
+  if (hours === 12) return "H-12 jam";
+  return `H-${hours / 24} hari`;
+}
+
+function timeOnDay(now, clock) {
+  const [hour, minute] = clock.split(":").map(Number);
+
+  return now.startOf("day").set({ hour, minute }).toMillis();
 }
 
 export function createScheduler(sendToNumber) {
@@ -16,10 +24,13 @@ export function createScheduler(sendToNumber) {
   async function sendReminder(baseKey, text) {
     for (const number of settings.allowed) {
       const key = `v3:${baseKey}:${number}`;
+
       if (delivery.sent(key)) continue;
+
       try {
         await sendToNumber(number, text);
         delivery.mark(key);
+
         console.log(`[NOTIFIKASI] ${baseKey} -> ${number.slice(0, 4)}****`);
       } catch (error) {
         console.error(
@@ -31,7 +42,9 @@ export function createScheduler(sendToNumber) {
 
   async function tick() {
     if (busy) return;
+
     busy = true;
+
     try {
       const now = nowWib();
       const current = now.toMillis();
@@ -39,9 +52,19 @@ export function createScheduler(sendToNumber) {
 
       for (const schedule of schedules.all()) {
         const starts = nextOccurrence(schedule, now);
+        const startMs = starts.toMillis();
+
         for (const hours of settings.reminderOffsets) {
-          const reminder = starts.minus({ hours }).toMillis();
-          if (current < reminder || current >= reminder + grace) continue;
+          const reminderAt = startMs - hours * 3600000;
+
+          if (
+            current < reminderAt ||
+            current >= reminderAt + grace ||
+            current >= startMs
+          ) {
+            continue;
+          }
+
           const message = [
             `PENGINGAT JADWAL ${offsetName(hours)}`,
             "",
@@ -50,10 +73,11 @@ export function createScheduler(sendToNumber) {
             `Hari: ${days[schedule.weekday - 1]}`,
             `Waktu: ${schedule.start_time}–${schedule.end_time} WIB`,
             `Lokasi: ${schedule.location}`,
-            `Mulai: ${dateLabel(starts.toMillis())}`,
+            `Mulai: ${dateLabel(startMs)}`,
             "",
-            "Persiapkan keperluan kegiatanmu, ya.",
+            "Jangan lupa persiapkan keperluan kegiatanmu, ya.",
           ].join("\n");
+
           await sendReminder(
             `schedule:${schedule.id}:${schedule.updated_at}:${starts.toISODate()}:${hours}`,
             message,
@@ -63,9 +87,14 @@ export function createScheduler(sendToNumber) {
 
       for (const task of tasks.active()) {
         if (task.due_at <= current) continue;
+
         for (const hours of settings.reminderOffsets) {
-          const reminder = task.due_at - hours * 3600000;
-          if (current < reminder || current >= reminder + grace) continue;
+          const reminderAt = task.due_at - hours * 3600000;
+
+          if (current < reminderAt || current >= reminderAt + grace) {
+            continue;
+          }
+
           const message = [
             `PENGINGAT DEADLINE ${offsetName(hours)}`,
             "",
@@ -73,8 +102,9 @@ export function createScheduler(sendToNumber) {
             `Tugas: ${task.title}`,
             `Deadline: ${dateLabel(task.due_at)}`,
             "",
-            `Jika sudah dikumpulkan, kirim /tugas selesai ${task.id}.`,
+            `Kalau sudah dikumpulkan, kirim /tugas selesai ${task.id}.`,
           ].join("\n");
+
           await sendReminder(
             `task:${task.id}:${task.due_at}:${hours}`,
             message,
@@ -82,11 +112,28 @@ export function createScheduler(sendToNumber) {
         }
       }
 
-      const [hour, minute] = settings.dailySummaryTime.split(":").map(Number);
-      const summaryAt = now.startOf("day").set({ hour, minute }).toMillis();
+      const summaryAt = timeOnDay(now, settings.dailySummaryTime);
+
       if (current >= summaryAt && current < summaryAt + grace) {
         await sendReminder(`summary:${now.toISODate()}`, summaryText());
       }
+
+      const streakAt = timeOnDay(now, settings.tiktokStreakTime);
+
+      if (current >= streakAt && current < streakAt + grace) {
+        const message = [
+          "PENGINGAT STREAK TIKTOK",
+          "",
+          `Halo! Sudah pukul ${settings.tiktokStreakTime} WIB.`,
+          "",
+          "Jangan lupa cek streak api TikTok dan lakukan interaksi yang diperlukan supaya streak tetap menyala.",
+          "",
+          "Kalau sudah, aman! Sampai jumpa lagi besok.",
+        ].join("\n");
+
+        await sendReminder(`tiktok-streak:${now.toISODate()}`, message);
+      }
+
       delivery.cleanup();
     } catch (error) {
       console.error("[SCHEDULER]", error.message);
@@ -98,5 +145,9 @@ export function createScheduler(sendToNumber) {
   const job = cron.schedule("* * * * *", () => void tick(), {
     timezone: settings.timezone,
   });
-  return { tick, stop: () => job.stop() };
+
+  return {
+    tick,
+    stop: () => job.stop(),
+  };
 }

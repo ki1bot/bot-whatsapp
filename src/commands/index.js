@@ -1,4 +1,5 @@
 import { nowWib, dateLabel } from "../time.js";
+import { settings } from "../config.js";
 import { tasks } from "../repositories/tasks.js";
 import { listTasks, handleTasks } from "./tasks.js";
 import { listSchedules, handleSchedules } from "./schedules.js";
@@ -35,12 +36,16 @@ export function helpText() {
     "/tugas selesai 1",
     "/tugas hapus 1",
     "",
+    "LAINNYA",
     "/ringkasan",
     "/ping",
     "/bantuan",
     "",
-    "Pengingat: H-3, H-2, H-1, dan H-12 jam.",
-    "Aku hanya menerima pesan teks dari dua nomor yang diizinkan.",
+    "PENGINGAT OTOMATIS",
+    "Jadwal dan tugas: H-3, H-2, H-1, H-12 jam, dan H-30 menit.",
+    `Ringkasan harian: ${settings.dailySummaryTime} WIB.`,
+    `Streak api TikTok: setiap hari pukul ${settings.tiktokStreakTime} WIB.`,
+    "",
   ].join("\n");
 }
 
