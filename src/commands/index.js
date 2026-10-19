@@ -2,10 +2,21 @@ import { nowWib, dateLabel } from "../time.js";
 import { tasks } from "../repositories/tasks.js";
 import { listTasks, handleTasks } from "./tasks.js";
 import { listSchedules, handleSchedules } from "./schedules.js";
+import { handleInfoCommand } from "./info.js";
 
 export function helpText() {
+  const exampleDate = nowWib().plus({ days: 14 }).toFormat("dd-MM-yyyy");
+
   return [
     "Halo! Aku bot pengingat jadwal dan deadline kamu.",
+    "",
+    "INFORMASI DAN PANDUAN",
+    "/info",
+    "/info jadwal",
+    "/info tugas",
+    "/info tambah",
+    "/info ubah",
+    "/info hapus",
     "",
     "JADWAL",
     "/jadwal",
@@ -19,8 +30,8 @@ export function helpText() {
     "DEADLINE",
     "/tugas",
     "/deadline",
-    "/tugas tambah | Basis Data | Membuat ERD | 28-10-2026 23:59",
-    "/tugas ubah 1 | Basis Data | Revisi ERD | 29-10-2026 23:59",
+    `/tugas tambah | Basis Data | Membuat ERD | ${exampleDate} 23:59`,
+    `/tugas ubah 1 | Basis Data | Revisi ERD | ${exampleDate} 23:59`,
     "/tugas selesai 1",
     "/tugas hapus 1",
     "",
@@ -36,13 +47,17 @@ export function helpText() {
 export function summaryText() {
   const now = nowWib();
   const active = tasks.active();
+
   const overdue = active.filter((item) => item.due_at < now.toMillis()).length;
+
   const deadlinesToday = active.filter(
     (item) =>
       item.due_at >= now.toMillis() &&
       item.due_at <= now.endOf("day").toMillis(),
   ).length;
+
   const nearest = active[0];
+
   return [
     `RINGKASAN ${now.setLocale("id").toFormat("dd LLLL yyyy")}`,
     `Tugas belum selesai: ${active.length}`,
@@ -61,6 +76,7 @@ export function summaryText() {
 export function routeCommand(text) {
   const input = text.trim();
   const lower = input.toLowerCase().replace(/\s+/g, " ");
+
   if (
     [
       "halo",
@@ -73,16 +89,39 @@ export function routeCommand(text) {
       "bantuan",
       "/bantuan",
     ].includes(lower)
-  )
+  ) {
     return helpText();
-  if (lower === "/ping")
+  }
+
+  if (lower === "/ping") {
     return `Halo! Aku aktif dan siap membantu. Sekarang ${nowWib().toFormat("dd-MM-yyyy HH:mm")} WIB.`;
-  if (lower === "/ringkasan") return summaryText();
+  }
+
+  if (lower === "/ringkasan") {
+    return summaryText();
+  }
+
+  const infoAnswer = handleInfoCommand(input);
+
+  if (infoAnswer !== null) {
+    return infoAnswer;
+  }
+
   const scheduleAnswer = handleSchedules(input);
-  if (scheduleAnswer !== null) return scheduleAnswer;
+
+  if (scheduleAnswer !== null) {
+    return scheduleAnswer;
+  }
+
   const taskAnswer = handleTasks(input);
-  if (taskAnswer !== null) return taskAnswer;
-  if (input.startsWith("/"))
-    return "Maaf, perintah itu belum aku kenal. Ketik /bantuan untuk melihat perintah yang tersedia.";
+
+  if (taskAnswer !== null) {
+    return taskAnswer;
+  }
+
+  if (input.startsWith("/")) {
+    return "Maaf, perintah itu belum aku kenal. Ketik /bantuan untuk melihat perintah yang tersedia atau /info untuk panduan pengelolaan data.";
+  }
+
   return null;
 }
