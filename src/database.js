@@ -3,7 +3,6 @@ import Database from "better-sqlite3";
 import { settings } from "./config.js";
 
 export const db = new Database(join(settings.dataDirectory, "tasks.db"));
-
 db.pragma("journal_mode = WAL");
 db.pragma("busy_timeout = 5000");
 
@@ -16,10 +15,6 @@ db.exec(`
     created_at INTEGER NOT NULL,
     completed_at INTEGER
   );
-
-  CREATE INDEX IF NOT EXISTS idx_tasks_pending
-  ON tasks (completed_at, due_at);
-
   CREATE TABLE IF NOT EXISTS schedules (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     kind TEXT NOT NULL,
@@ -31,17 +26,20 @@ db.exec(`
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
   );
-
-  CREATE INDEX IF NOT EXISTS idx_schedules_weekday
-  ON schedules (weekday, start_time);
-
   CREATE TABLE IF NOT EXISTS sent_notifications (
     notification_key TEXT PRIMARY KEY,
     sent_at INTEGER NOT NULL
   );
-
   CREATE TABLE IF NOT EXISTS processed_messages (
     message_id TEXT PRIMARY KEY,
     processed_at INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS app_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_tasks_active
+    ON tasks (completed_at, due_at);
+  CREATE INDEX IF NOT EXISTS idx_schedules_day
+    ON schedules (weekday, start_time);
 `);

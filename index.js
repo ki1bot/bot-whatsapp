@@ -1,19 +1,16 @@
 import { settings } from "./src/config.js";
-import "./src/database.js";
+import { seedSchedules } from "./src/seed.js";
 import { createScheduler } from "./src/scheduler.js";
-import { sendToSelf, startWhatsApp } from "./src/whatsapp.js";
+import { startWhatsApp, sendToNumber } from "./src/whatsapp.js";
 
-const scheduler = createScheduler(sendToSelf);
-
-console.log(`Bot WhatsApp dimulai, zona waktu ${settings.timezone}.`);
+seedSchedules();
+const scheduler = createScheduler(sendToNumber);
+console.log(`Bot pengingat aktif. Zona waktu: ${settings.timezone}.`);
 startWhatsApp(() => scheduler.tick());
 
-process.on("SIGINT", () => {
-  scheduler.stop();
-  process.exit(0);
-});
-
-process.on("SIGTERM", () => {
-  scheduler.stop();
-  process.exit(0);
-});
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.once(signal, () => {
+    scheduler.stop();
+    process.exit(0);
+  });
+}

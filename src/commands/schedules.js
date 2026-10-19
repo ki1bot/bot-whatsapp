@@ -1,160 +1,78 @@
 import { schedules } from "../repositories/schedules.js";
-import { nowWib, parseWeekday, validClock, weekdays } from "../time.js";
+import { days, isClock, nowWib, parseDay } from "../time.js";
 
 const kinds = ["kuliah", "asisten", "praktikum", "lainnya"];
+const usage =
+  "/jadwal tambah | kuliah | Nama Kegiatan | Senin | 07:30 | 09:30 | Lokasi";
+const validId = (raw) =>
+  /^\d+$/.test(raw) && Number.isSafeInteger(Number(raw)) && Number(raw) > 0;
 
-function validId(raw) {
-  const id = Number(raw);
-
-  return /^\d+$/.test(String(raw)) && Number.isSafeInteger(id) && id > 0
-    ? id
-    : null;
-}
-
-function parseScheduleFields(raw) {
-  const fields = raw.split("|").map((value) => value.trim());
-
-  if (fields.length !== 6 || fields.some((value) => !value)) {
-    return {
-      error:
-        "Format: /jadwal tambah | kuliah | Nama Kegiatan | Senin | 08:00 | 10:00 | Ruang F4",
-    };
-  }
-
-  const [kindRaw, title, dayRaw, start, end, location] = fields;
+function parseDetails(raw) {
+  const parts = raw.split("|").map((value) => value.trim());
+  if (parts.length !== 6 || parts.some((value) => !value)) return null;
+  const [kindRaw, title, day, start, end, location] = parts;
   const kind = kindRaw.toLowerCase();
-  const weekday = parseWeekday(dayRaw);
-
-  if (!kinds.includes(kind)) {
-    return {
-      error: "Jenis jadwal harus kuliah, asisten, praktikum, atau lainnya.",
-    };
-  }
-
-  if (!weekday) {
-    return {
-      error: "Nama hari harus Senin sampai Minggu atau angka 1 sampai 7.",
-    };
-  }
-
-  if (!validClock(start) || !validClock(end) || end <= start) {
-    return {
-      error:
-        "Jam harus HH:mm, dan jam selesai harus setelah jam mulai pada hari yang sama.",
-    };
-  }
-
-  if (title.length > 160 || location.length > 120) {
-    return {
-      error:
-        "Nama kegiatan maksimal 160 karakter dan lokasi maksimal 120 karakter.",
-    };
-  }
-
-  return {
-    value: {
-      kind,
-      title,
-      weekday,
-      start,
-      end,
-      location,
-    },
-  };
-}
-
-function formatSchedule(item, index) {
-  return `${index}. [${item.id}] ${item.title}\n${item.kind.toUpperCase()} • ${weekdays[item.weekday - 1]} ${item.start_time}–${item.end_time}\nLokasi: ${item.location}`;
-}
-
-export function listSchedules(day = null, label = "Jadwal mingguan") {
-  const rows = day ? schedules.forDay(day) : schedules.all();
-
-  if (!rows.length) {
-    return `${label} belum ada. Tambahkan lewat /jadwal tambah.`;
-  }
-
-  return `${label}\n\n${rows.slice(0, 25).map(formatSchedule).join("\n\n")}${rows.length > 25 ? `\n\nMasih ada ${rows.length - 25} jadwal lainnya.` : ""}`;
-}
-
-export function schedulesToday() {
-  return listSchedules(nowWib().weekday, "Jadwal hari ini");
-}
-
-export function schedulesTomorrow() {
-  return listSchedules(nowWib().plus({ days: 1 }).weekday, "Jadwal besok");
-}
-
-export function handleScheduleCommand(input) {
-  const trimmed = input.trim();
-  const lower = trimmed.toLowerCase();
-
-  if (["/jadwal", "/jadwal minggu", "jadwal"].includes(lower)) {
-    return listSchedules();
-  }
-
+  const weekday = parseDay(day);
   if (
-    ["/hariini", "hari ini", "jadwal hari ini", "/jadwal hari ini"].includes(
-      lower,
-    )
-  ) {
-    return schedulesToday();
-  }
+    !kinds.includes(kind) ||
+    !weekday ||
+    !isClock(start) ||
+    !isClock(end) ||
+    start >= end
+  )
+    return null;
+  if (title.length > 160 || location.length > 120) return null;
+  return { kind, title, weekday, start, end, location };
+}
 
-  if (["/besok", "jadwal besok", "/jadwal besok"].includes(lower)) {
-    return schedulesTomorrow();
-  }
+export function listSchedules(weekday = null) {
+  const rows = weekday ? schedules.forDay(weekday) : schedules.all();
+  const label = weekday ? days[weekday - 1] : "Mingguan";
+  if (!rows.length) return `Belum ada jadwal untuk ${label}.`;
+  return `JADWAL ${label.toUpperCase()} (${rows.length})\n\n${rows.map((item) => `[${item.id}] ${days[item.weekday - 1]} ${item.start_time}–${item.end_time}\n${item.title}\nJenis: ${item.kind} | Lokasi: ${item.location}`).join("\n\n")}`;
+}
 
-  const add = trimmed.match(/^\/jadwal\s+tambah\s*\|/i);
+export function handleSchedules(input) {
+  const lower = input.toLowerCase().replace(/\s+/g, " ");
+  if (["/jadwal", "/jadwal minggu"].includes(lower)) return listSchedules();
+  if (["/hariini", "/jadwal hariini", "/jadwal hari ini"].includes(lower))
+    return listSchedules(nowWib().weekday);
+  if (["/besok", "/jadwal besok"].includes(lower))
+    return listSchedules(nowWib().plus({ days: 1 }).weekday);
 
+  const byDay = lower.match(
+    /^\/jadwal\s+(senin|selasa|rabu|kamis|jumat|sabtu|minggu)$/,
+  );
+  if (byDay) return listSchedules(parseDay(byDay[1]));
+
+  const add = input.match(/^\/jadwal\s+tambah\s*\|\s*(.*)$/i);
   if (add) {
-    const result = parseScheduleFields(trimmed.slice(add[0].length));
-
-    if (result.error) {
-      return result.error;
-    }
-
-    const id = schedules.add(result.value);
-
-    return `Jadwal berhasil ditambahkan!\n\nID: ${id}\n${result.value.title}\nJenis: ${result.value.kind}\nHari: ${weekdays[result.value.weekday - 1]}\nWaktu: ${result.value.start}–${result.value.end}\nLokasi: ${result.value.location}\n\nAku akan mengingatkanmu sebelum kegiatan dimulai.`;
+    const detail = parseDetails(add[1]);
+    if (!detail) return `Format jadwal belum sesuai. Contoh:\n${usage}`;
+    const id = schedules.add(detail);
+    return `Jadwal berhasil ditambahkan!\n\nID: ${id}\n${detail.title}\n${days[detail.weekday - 1]} ${detail.start}–${detail.end}\nLokasi: ${detail.location}\n\nAku akan mengingatkan pada H-3, H-2, H-1, dan 12 jam sebelum jadwal.`;
   }
 
-  const edit = trimmed.match(/^\/jadwal\s+ubah\s+(\d+)\s*\|/i);
-
+  const edit = input.match(/^\/jadwal\s+ubah\s+(\d+)\s*\|\s*(.*)$/i);
   if (edit) {
-    const id = validId(edit[1]);
-    const result = parseScheduleFields(trimmed.slice(edit[0].length));
-
-    if (!id) {
-      return "ID jadwal tidak valid.";
-    }
-
-    if (result.error) {
-      return result.error;
-    }
-
-    if (!schedules.edit(id, result.value)) {
-      return `Jadwal ID ${id} tidak ditemukan.`;
-    }
-
-    return `Siap, jadwal ${id} sudah diperbarui menjadi ${result.value.title}, ${weekdays[result.value.weekday - 1]} ${result.value.start}–${result.value.end} di ${result.value.location}.`;
+    const detail = parseDetails(edit[2]);
+    if (!validId(edit[1]) || !detail)
+      return `Format perubahan belum sesuai.\n/jadwal ubah 1 | kuliah | Nama Kegiatan | Senin | 07:30 | 09:30 | Lokasi`;
+    const updated = schedules.edit(Number(edit[1]), detail);
+    return updated
+      ? `Jadwal #${edit[1]} berhasil diubah menjadi ${detail.title}, ${days[detail.weekday - 1]} pukul ${detail.start}.`
+      : "Jadwal tidak ditemukan.";
   }
 
-  const remove = trimmed.match(/^\/jadwal\s+hapus\s+(\d+)$/i);
-
+  const remove = input.match(/^\/jadwal\s+hapus\s+(\d+)$/i);
   if (remove) {
-    const id = validId(remove[1]);
-
-    if (!id || !schedules.delete(id)) {
-      return "Jadwal tidak ditemukan. Cek ID melalui /jadwal.";
-    }
-
-    return `Jadwal ${id} berhasil dihapus. Pengingat berikutnya tidak akan dikirim.`;
+    if (!validId(remove[1])) return "ID jadwal tidak valid.";
+    return schedules.delete(Number(remove[1]))
+      ? `Jadwal #${remove[1]} berhasil dihapus.`
+      : "ID jadwal tidak ditemukan.";
   }
 
-  if (/^\/jadwal\b/i.test(trimmed)) {
-    return "Perintah jadwal belum tepat. Coba:\n/jadwal\n/jadwal hari ini\n/jadwal tambah | kuliah | Basis Data | Senin | 08:00 | 10:00 | F4\n/jadwal ubah 1 | praktikum | Basis Data | Selasa | 09:00 | 11:00 | Lab 2\n/jadwal hapus 1";
-  }
-
+  if (/^\/jadwal\b/i.test(input))
+    return `Perintah jadwal belum sesuai. Contoh:\n${usage}\n/jadwal ubah 1 | kuliah | Nama Kegiatan | Senin | 07:30 | 09:30 | Lokasi\n/jadwal hapus 1`;
   return null;
 }

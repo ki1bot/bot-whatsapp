@@ -1,47 +1,58 @@
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { config as loadEnv } from "dotenv";
+import { config } from "dotenv";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-loadEnv({ path: join(root, ".env"), quiet: true });
+config({ path: join(root, ".env"), quiet: true });
 
-const phone = (process.env.WHATSAPP_NUMBER ?? "").replace(/\D/g, "");
-const reminderMinutes = Number(process.env.SCHEDULE_REMINDER_MINUTES ?? 30);
+export function normalizePhone(value) {
+  let phone = String(value ?? "").replace(/\D/g, "");
+  if (phone.startsWith("0")) phone = `62${phone.slice(1)}`;
+  return phone;
+}
+
+const phone = normalizePhone(process.env.WHATSAPP_NUMBER);
+const allowed = [
+  ...new Set(
+    (process.env.ALLOWED_NUMBERS ?? "")
+      .split(",")
+      .map(normalizePhone)
+      .filter(Boolean),
+  ),
+];
 const dailySummaryTime = process.env.DAILY_SUMMARY_TIME ?? "07:00";
 
-if (!/^\d{10,15}$/.test(phone)) {
-  throw new Error(
-    "WHATSAPP_NUMBER harus berupa nomor internasional, misalnya 6281234567890.",
-  );
+if (!/^62[1-9]\d{7,11}$/.test(phone)) {
+  throw new Error("WHATSAPP_NUMBER tidak valid. Gunakan format 628xxxxxxxxxx.");
 }
-
 if (
-  !Number.isInteger(reminderMinutes) ||
-  reminderMinutes < 1 ||
-  reminderMinutes > 1440
+  allowed.length !== 2 ||
+  allowed.some((number) => !/^62[1-9]\d{7,11}$/.test(number))
 ) {
   throw new Error(
-    "SCHEDULE_REMINDER_MINUTES harus bilangan bulat antara 1 dan 1440.",
+    "ALLOWED_NUMBERS harus berisi tepat dua nomor WhatsApp yang valid.",
   );
 }
-
+if (allowed.includes(phone)) {
+  throw new Error("Nomor bot harus berbeda dari kedua nomor yang diizinkan.");
+}
 if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(dailySummaryTime)) {
   throw new Error("DAILY_SUMMARY_TIME harus dalam format HH:mm.");
 }
 
 const authDirectory = join(root, "auth", phone);
 const dataDirectory = join(root, "data");
-
 mkdirSync(authDirectory, { recursive: true, mode: 0o700 });
 mkdirSync(dataDirectory, { recursive: true, mode: 0o700 });
 
 export const settings = {
   root,
   phone,
+  allowed,
   authDirectory,
   dataDirectory,
   timezone: "Asia/Jakarta",
-  reminderMinutes,
   dailySummaryTime,
+  reminderOffsets: [72, 48, 24, 12],
 };

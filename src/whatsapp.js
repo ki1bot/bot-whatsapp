@@ -1,311 +1,265 @@
 import pino from "pino";
 import qrcode from "qrcode-terminal";
 import makeWASocket, {
-  areJidsSameUser,
   DisconnectReason,
   jidNormalizedUser,
   useMultiFileAuthState,
 } from "@whiskeysockets/baileys";
 import { settings } from "./config.js";
 import { delivery } from "./repositories/delivery.js";
-import { routeCommand, isCommandCandidate } from "./commands/index.js";
+import { routeCommand } from "./commands/index.js";
 
-let socket = null;
-let selfChatJid = null;
+let currentSocket = null;
+let activeSocket = null;
 let reconnectTimer = null;
-let closed = false;
 let connecting = false;
-let onReady = () => {};
+let stopped = false;
+let readyCallback = () => {};
+const knownChats = new Map();
 
-const sentMessageIds = new Set();
+function normalizeJid(value) {
+  return value ? jidNormalizedUser(value) : null;
+}
 
-function unwrapMessage(message) {
-  let value = message;
+function phoneFromJid(value) {
+  const jid = normalizeJid(value);
+  if (!jid?.endsWith("@s.whatsapp.net")) return null;
+  const number = jid.split("@")[0];
+  return /^\d+$/.test(number) ? number : null;
+}
 
+function extractText(message) {
+  let body = message;
   for (let i = 0; i < 4; i++) {
     const nested =
-      value?.ephemeralMessage?.message ??
-      value?.viewOnceMessage?.message ??
-      value?.viewOnceMessageV2?.message ??
-      value?.deviceSentMessage?.message;
-
+      body?.ephemeralMessage?.message ??
+      body?.viewOnceMessage?.message ??
+      body?.viewOnceMessageV2?.message ??
+      body?.deviceSentMessage?.message;
     if (!nested) break;
-
-    value = nested;
+    body = nested;
   }
-
-  return (value?.conversation ?? value?.extendedTextMessage?.text ?? "").trim();
+  return (body?.conversation ?? body?.extendedTextMessage?.text ?? "").trim();
 }
 
-function actualOwnJids(sock) {
-  return [
-    sock.user?.id,
-    sock.user?.lid,
-    sock.authState?.creds?.me?.id,
-    sock.authState?.creds?.me?.lid,
-  ]
+async function resolveSender(sock, key) {
+  if (key.fromMe !== false) return null;
+  const direct = normalizeJid(key.remoteJid);
+  if (
+    !direct ||
+    (!direct.endsWith("@lid") && !direct.endsWith("@s.whatsapp.net"))
+  )
+    return null;
+
+  const candidates = [key.remoteJid, key.remoteJidAlt]
     .filter(Boolean)
-    .map(jidNormalizedUser);
-}
+    .map(normalizeJid);
+  const numbers = new Set(candidates.map(phoneFromJid).filter(Boolean));
+  const map = sock.signalRepository?.lidMapping;
 
-function ownJids(sock) {
-  return [...actualOwnJids(sock), `${settings.phone}@s.whatsapp.net`];
-}
-
-function matchesAny(jid, identities) {
-  return Boolean(jid) && identities.some((own) => areJidsSameUser(jid, own));
-}
-
-async function ownChat(sock, key) {
-  const identities = ownJids(sock);
-
-  const candidates = [key.remoteJid, key.remoteJidAlt].filter(Boolean);
-
-  if (candidates.some((jid) => matchesAny(jid, identities))) {
-    return true;
-  }
-
-  const mapping = sock.signalRepository?.lidMapping;
-
-  for (const jid of candidates) {
-    if (!jid.endsWith("@lid") || !mapping?.getPNForLID) {
-      continue;
+  for (const jid of candidates.filter((candidate) =>
+    candidate?.endsWith("@lid"),
+  )) {
+    try {
+      const resolved = await map?.getPNForLID?.(jid);
+      const pn = phoneFromJid(resolved);
+      if (pn) numbers.add(pn);
+    } catch (error) {
+      console.warn("[AKSES] Pemetaan LID belum tersedia:", error.message);
     }
-
-    try {
-      const pn = await mapping.getPNForLID(jidNormalizedUser(jid));
-
-      if (matchesAny(pn, identities)) {
-        return true;
-      }
-    } catch {}
   }
 
-  return false;
+  if (numbers.size === 0 && direct.endsWith("@lid")) {
+    for (const allowedPhone of settings.allowed) {
+      try {
+        const lid = await map?.getLIDForPN?.(`${allowedPhone}@s.whatsapp.net`);
+        if (normalizeJid(lid) === direct) numbers.add(allowedPhone);
+      } catch (error) {
+        console.warn("[AKSES] Reverse mapping LID gagal:", error.message);
+      }
+    }
+  }
+
+  if (numbers.size !== 1) return null;
+  const [phone] = numbers;
+  if (!settings.allowed.includes(phone)) return null;
+  return { phone, chat: direct };
 }
 
-async function validateOwnNumber(sock) {
-  const pn = `${settings.phone}@s.whatsapp.net`;
+async function validateBotNumber(sock) {
+  const identities = [sock.user?.id, sock.authState?.creds?.me?.id]
+    .map(phoneFromJid)
+    .filter(Boolean);
 
-  const candidates = actualOwnJids(sock).filter((jid) =>
-    jid.endsWith("@s.whatsapp.net"),
-  );
-
-  const mapping = sock.signalRepository?.lidMapping;
-
-  for (const lid of actualOwnJids(sock).filter((jid) => jid.endsWith("@lid"))) {
-    try {
-      const result = await mapping?.getPNForLID?.(lid);
-
-      if (result) {
-        candidates.push(jidNormalizedUser(result));
-      }
-    } catch {}
+  if (
+    identities.length &&
+    identities.some((number) => number !== settings.phone)
+  ) {
+    throw new Error("Nomor akun tertaut tidak cocok dengan WHATSAPP_NUMBER.");
   }
-
-  if (candidates.some((candidate) => !areJidsSameUser(candidate, pn))) {
-    throw new Error(
-      "Akun WhatsApp yang ditautkan tidak sesuai dengan WHATSAPP_NUMBER. Periksa sesi auth untuk nomor ini.",
-    );
-  }
-
-  if (candidates.length === 0) {
+  if (!identities.length) {
     console.warn(
-      "[AKUN] Nomor belum dapat diverifikasi melalui PN; menggunakan identitas LID untuk chat diri sendiri.",
+      "[AKUN] Nomor bot belum dapat divalidasi dari JID PN. Periksa akun WhatsApp yang ditautkan.",
     );
   }
 }
 
-export async function sendToSelf(text) {
-  const sock = socket;
-
-  if (!sock?.user) {
+export async function sendToNumber(phone, text) {
+  if (!settings.allowed.includes(phone))
+    throw new Error("Nomor tujuan tidak diizinkan.");
+  const sock = activeSocket;
+  if (!sock?.user || currentSocket !== sock)
     throw new Error("Koneksi WhatsApp belum siap.");
-  }
 
-  const target = selfChatJid ?? sock.user.lid ?? sock.user.id;
-
+  let target = knownChats.get(phone);
   if (!target) {
-    throw new Error("Identitas chat pribadi belum tersedia.");
+    const pn = `${phone}@s.whatsapp.net`;
+    try {
+      target =
+        normalizeJid(
+          await sock.signalRepository?.lidMapping?.getLIDForPN?.(pn),
+        ) ?? pn;
+    } catch {
+      target = pn;
+    }
   }
 
-  const sent = await sock.sendMessage(jidNormalizedUser(target), { text });
-
-  if (!sent?.key?.id) {
-    throw new Error("WhatsApp belum mengembalikan ID pesan.");
-  }
-
-  sentMessageIds.add(sent.key.id);
-
-  if (sentMessageIds.size > 500) {
-    sentMessageIds.clear();
-  }
+  const result = await sock.sendMessage(target, { text });
+  if (!result?.key?.id)
+    throw new Error("WhatsApp belum mengonfirmasi ID pesan.");
+  return result.key.id;
 }
 
-async function handleMessage(sock, message) {
-  if (socket !== sock || message.key?.fromMe !== true || !message.message) {
+async function processMessage(sock, message) {
+  if (
+    sock !== activeSocket ||
+    !message.message ||
+    message.key?.fromMe !== false
+  )
+    return;
+  const text = extractText(message.message);
+  if (!text) return;
+
+  const sender = await resolveSender(sock, message.key);
+  if (!sender) {
+    if (text.startsWith("/"))
+      console.log(
+        "[AKSES] Pesan ditolak: nomor tidak terverifikasi atau tidak diizinkan.",
+      );
     return;
   }
 
-  const input = unwrapMessage(message.message);
-
-  if (!input || !isCommandCandidate(input)) {
-    return;
-  }
-
-  if (!(await ownChat(sock, message.key))) {
-    console.warn(
-      "[PESAN] Perintah bukan dari chat Pesan ke diri sendiri, diabaikan.",
-    );
-
-    return;
-  }
-
-  const messageId = message.key.id;
-
-  if (!messageId || sentMessageIds.has(messageId)) {
-    return;
-  }
-
+  const answer = routeCommand(text);
+  if (!answer) return;
+  const id = message.key.id;
+  if (!id) return;
   const timestamp = Number(message.messageTimestamp?.toString() ?? 0) * 1000;
+  if (timestamp && Math.abs(Date.now() - timestamp) > 10 * 60 * 1000) return;
+  if (!delivery.accept(`${sender.phone}:${id}`)) return;
 
-  if (!timestamp || Math.abs(Date.now() - timestamp) > 10 * 60 * 1000) {
-    return;
-  }
-
-  if (!delivery.acceptMessage(messageId)) {
-    return;
-  }
-
-  selfChatJid = jidNormalizedUser(message.key.remoteJid);
-
-  const result = routeCommand(input);
-
-  console.log(`[PERINTAH] ${input.split(/[\s|]/, 1)[0]}`);
-
-  await sendToSelf(result);
+  knownChats.set(sender.phone, sender.chat);
+  console.log(`[PERINTAH] ${text.split(/[\s|]/)[0]} dari nomor terdaftar.`);
+  await sendToNumber(sender.phone, answer);
 }
 
-function reconnect() {
-  if (closed || reconnectTimer || socket) {
-    return;
-  }
-
+function scheduleReconnect() {
+  if (stopped || reconnectTimer) return;
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
     void connect();
-  }, 5000);
+  }, 3000);
 }
 
 async function connect() {
-  if (closed || connecting) {
-    return;
-  }
-
+  if (connecting || stopped || currentSocket) return;
   connecting = true;
-
   try {
     const { state, saveCreds } = await useMultiFileAuthState(
       settings.authDirectory,
     );
-
     const sock = makeWASocket({
       auth: state,
       logger: pino({ level: "silent" }),
       markOnlineOnConnect: false,
     });
-
+    currentSocket = sock;
     sock.ev.on("creds.update", saveCreds);
 
     sock.ev.on("connection.update", (update) => {
+      if (currentSocket !== sock) return;
       if (update.qr) {
         console.log(
-          "Scan QR melalui WhatsApp > Perangkat tertaut > Tautkan perangkat.",
+          "Scan QR di WhatsApp > Perangkat tertaut > Tautkan perangkat.",
         );
-
-        qrcode.generate(update.qr, {
-          small: true,
-        });
+        qrcode.generate(update.qr, { small: true });
       }
-
       if (update.connection === "open") {
-        if (reconnectTimer) {
-          clearTimeout(reconnectTimer);
-          reconnectTimer = null;
-        }
-
-        void validateOwnNumber(sock)
+        void validateBotNumber(sock)
           .then(() => {
-            if (closed) return;
-
-            socket = sock;
-            selfChatJid = null;
-
+            if (currentSocket !== sock || stopped) return;
+            activeSocket = sock;
             console.log(
-              "WhatsApp terhubung. Coba ketik /ping di Pesan ke diri sendiri.",
+              "WhatsApp terhubung. Perintah hanya diterima dari dua nomor ALLOWED_NUMBERS.",
             );
-
-            void onReady();
+            void readyCallback();
           })
           .catch((error) => {
-            closed = true;
-
-            console.error("[VALIDASI]", error.message);
-
+            console.error("[AKUN]", error.message);
+            stopped = true;
             sock.end(error);
             process.exit(1);
           });
       }
-
       if (update.connection === "close") {
-        if (socket && socket !== sock) {
-          return;
-        }
-
-        if (socket === sock) {
-          socket = null;
-        }
-
+        activeSocket = null;
+        currentSocket = null;
+        knownChats.clear();
         const code = update.lastDisconnect?.error?.output?.statusCode;
-
         if (code === DisconnectReason.loggedOut) {
-          closed = true;
-
+          stopped = true;
           console.error(
-            "Sesi WhatsApp keluar. Periksa folder auth dan tautkan kembali.",
+            "[KONEKSI] Sesi logout. Perlu tautkan kembali perangkat.",
           );
-
           process.exit(1);
-          return;
+        } else if (!stopped) {
+          console.warn(
+            `[KONEKSI] Terputus (${code ?? "tanpa kode"}), menghubungkan ulang...`,
+          );
+          scheduleReconnect();
         }
-
-        console.warn(`[KONEKSI] Terputus: ${code ?? "tidak diketahui"}`);
-
-        reconnect();
       }
     });
 
     sock.ev.on("messages.upsert", (event) => {
-      if (!["notify", "append"].includes(event.type)) {
-        return;
-      }
-
+      if (event.type !== "notify") return;
       for (const message of event.messages) {
-        void handleMessage(sock, message).catch((error) => {
-          console.error("[PERINTAH]", error.message);
-        });
+        void processMessage(sock, message).catch((error) =>
+          console.error("[PESAN]", error.message),
+        );
+      }
+    });
+
+    sock.ev.on("call", (calls) => {
+      for (const call of calls) {
+        if (call.status !== "offer") continue;
+        void sock
+          .rejectCall(call.id, call.from)
+          .then(() =>
+            console.log("[PANGGILAN] Panggilan masuk otomatis ditolak."),
+          )
+          .catch((error) => console.error("[PANGGILAN]", error.message));
       }
     });
   } catch (error) {
     console.error("[KONEKSI]", error.message);
-
-    reconnect();
+    currentSocket = null;
+    scheduleReconnect();
   } finally {
     connecting = false;
   }
 }
 
 export function startWhatsApp(callback) {
-  onReady = callback;
+  readyCallback = callback;
   void connect();
 }
