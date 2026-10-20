@@ -5,6 +5,7 @@ import { listTasks, handleTasks } from "./tasks.js";
 import { listSchedules, handleSchedules } from "./schedules.js";
 import { handleInfoCommand } from "./info.js";
 import { handleMateriCommand } from "./materi.js";
+import { handleGambarCommand } from "./gambar.js";
 
 export function helpText() {
   const exampleDate = nowWib().plus({ days: 14 }).toFormat("dd-MM-yyyy");
@@ -25,7 +26,8 @@ export function helpText() {
     "/hariini",
     "/besok",
     "/jadwal senin",
-    "/jadwal tambah | asisten | Asisten Laboratorium Informatika | Senin | 07:30 | 09:30 | Kalimalang | Online | Asisten Ngajar Online/Daring",
+    "/gambar jadwal",
+    "/jadwal tambah | asisten | Jaga Lab | Senin | 07:30 | 09:30 | Kalimalang | Online | Asisten Ngajar Online/Daring",
     "/jadwal ubah 1 | kuliah | Konsep Data Mining | Selasa | 09:30 | 11:30 | Kalimalang | J1416B | Mata Kuliah",
     "/jadwal hapus 1",
     "",
@@ -109,17 +111,35 @@ export function routeCommand(text) {
     return summaryText();
   }
 
+  const gambarAnswer = handleGambarCommand(input);
+
+  if (gambarAnswer !== null) {
+    return gambarAnswer;
+  }
+
   const materiAnswer = handleMateriCommand(input);
-  if (materiAnswer !== null) return materiAnswer;
+
+  if (materiAnswer !== null) {
+    return materiAnswer;
+  }
 
   const infoAnswer = handleInfoCommand(input);
-  if (infoAnswer !== null) return infoAnswer;
+
+  if (infoAnswer !== null) {
+    return infoAnswer;
+  }
 
   const scheduleAnswer = handleSchedules(input);
-  if (scheduleAnswer !== null) return scheduleAnswer;
+
+  if (scheduleAnswer !== null) {
+    return scheduleAnswer;
+  }
 
   const taskAnswer = handleTasks(input);
-  if (taskAnswer !== null) return taskAnswer;
+
+  if (taskAnswer !== null) {
+    return taskAnswer;
+  }
 
   if (input.startsWith("/")) {
     return "Maaf, perintah itu belum aku kenal. Ketik /bantuan atau /info untuk melihat panduan.";
