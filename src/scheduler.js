@@ -14,7 +14,6 @@ function offsetName(hours) {
 
 function timeOnDay(now, clock) {
   const [hour, minute] = clock.split(":").map(Number);
-
   return now.startOf("day").set({ hour, minute }).toMillis();
 }
 
@@ -69,13 +68,14 @@ export function createScheduler(sendToNumber) {
             `PENGINGAT JADWAL ${offsetName(hours)}`,
             "",
             `Kegiatan: ${schedule.title}`,
-            `Jenis: ${schedule.kind}`,
             `Hari: ${days[schedule.weekday - 1]}`,
-            `Waktu: ${schedule.start_time}–${schedule.end_time} WIB`,
+            `Jam: ${schedule.start_time}–${schedule.end_time} WIB`,
             `Lokasi: ${schedule.location}`,
+            `Ruang: ${schedule.room}`,
+            `Jenis: ${schedule.activity_type}`,
             `Mulai: ${dateLabel(startMs)}`,
             "",
-            "Jangan lupa persiapkan keperluan kegiatanmu, ya.",
+            "Jangan lupa persiapkan kegiatanmu, ya.",
           ].join("\n");
 
           await sendReminder(
@@ -121,17 +121,17 @@ export function createScheduler(sendToNumber) {
       const streakAt = timeOnDay(now, settings.tiktokStreakTime);
 
       if (current >= streakAt && current < streakAt + grace) {
-        const message = [
-          "PENGINGAT STREAK TIKTOK",
-          "",
-          `Halo! Sudah pukul ${settings.tiktokStreakTime} WIB.`,
-          "",
-          "Jangan lupa cek streak api TikTok dan lakukan interaksi yang diperlukan supaya streak tetap menyala.",
-          "",
-          "Kalau sudah, aman! Sampai jumpa lagi besok.",
-        ].join("\n");
-
-        await sendReminder(`tiktok-streak:${now.toISODate()}`, message);
+        await sendReminder(
+          `tiktok-streak:${now.toISODate()}`,
+          [
+            "PENGINGAT STREAK TIKTOK",
+            "",
+            `Halo! Sudah pukul ${settings.tiktokStreakTime} WIB.`,
+            "Jangan lupa cek streak api TikTok dan lakukan interaksi yang diperlukan supaya tetap menyala.",
+            "",
+            "Kalau sudah, aman! Sampai jumpa besok.",
+          ].join("\n"),
+        );
       }
 
       delivery.cleanup();

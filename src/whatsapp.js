@@ -198,9 +198,7 @@ async function connect() {
           .then(() => {
             if (currentSocket !== sock || stopped) return;
             activeSocket = sock;
-            console.log(
-              "WhatsApp terhubung. Perintah hanya diterima dari dua nomor ALLOWED_NUMBERS.",
-            );
+            console.log("WhatsApp terhubung.");
             void readyCallback();
           })
           .catch((error) => {

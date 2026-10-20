@@ -1,28 +1,37 @@
 import { db } from "../database.js";
 
-const one = db.prepare("SELECT * FROM schedules WHERE id = ?");
-const all = db.prepare(
+const getOne = db.prepare("SELECT * FROM schedules WHERE id = ?");
+const getAll = db.prepare(
   "SELECT * FROM schedules ORDER BY weekday, start_time, id",
 );
-const forDay = db.prepare(
+const getByDay = db.prepare(
   "SELECT * FROM schedules WHERE weekday = ? ORDER BY start_time, id",
 );
+
 const insert = db.prepare(`
-  INSERT INTO schedules (kind, title, weekday, start_time, end_time, location, created_at, updated_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO schedules
+    (kind, title, weekday, start_time, end_time, location, room,
+     activity_type, created_at, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
+
 const update = db.prepare(`
-  UPDATE schedules SET kind = ?, title = ?, weekday = ?, start_time = ?, end_time = ?, location = ?, updated_at = ?
+  UPDATE schedules
+  SET kind = ?, title = ?, weekday = ?, start_time = ?, end_time = ?,
+      location = ?, room = ?, activity_type = ?, updated_at = ?
   WHERE id = ?
 `);
+
 const remove = db.prepare("DELETE FROM schedules WHERE id = ?");
 
 export const schedules = {
-  get: (id) => one.get(id),
-  all: () => all.all(),
-  forDay: (weekday) => forDay.all(weekday),
+  get: (id) => getOne.get(id),
+  all: () => getAll.all(),
+  forDay: (weekday) => getByDay.all(weekday),
+
   add(item) {
     const timestamp = Date.now();
+
     return Number(
       insert.run(
         item.kind,
@@ -31,11 +40,14 @@ export const schedules = {
         item.start,
         item.end,
         item.location,
+        item.room,
+        item.activity_type,
         timestamp,
         timestamp,
       ).lastInsertRowid,
     );
   },
+
   edit(id, item) {
     return (
       update.run(
@@ -45,10 +57,13 @@ export const schedules = {
         item.start,
         item.end,
         item.location,
+        item.room,
+        item.activity_type,
         Date.now(),
         id,
       ).changes > 0
     );
   },
+
   delete: (id) => remove.run(id).changes > 0,
 };

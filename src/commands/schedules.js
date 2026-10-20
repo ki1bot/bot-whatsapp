@@ -2,23 +2,42 @@ import { schedules } from "../repositories/schedules.js";
 import { days, isClock, nowWib, parseDay } from "../time.js";
 
 const kinds = ["kuliah", "asisten", "praktikum", "lainnya"];
-
 const usage =
-  "/jadwal tambah | kuliah | Nama Kegiatan | Senin | 07:30 | 09:30 | Lokasi";
-
+  "/jadwal tambah | asisten | Asisten Laboratorium Informatika | Senin | 07:30 | 09:30 | Kalimalang | Online | Asisten Ngajar Online/Daring";
 const validId = (raw) =>
   /^\d+$/.test(raw) && Number.isSafeInteger(Number(raw)) && Number(raw) > 0;
 
-function parseDetails(raw) {
+function defaultActivityType(kind, title, room) {
+  if (kind === "kuliah") return "Mata Kuliah";
+  if (kind === "praktikum") return "Praktikum Offline/Luring";
+
+  if (kind === "asisten") {
+    if (/jaga/i.test(title)) return "Asisten Jaga/Penilaian";
+    if (/online/i.test(room)) return "Asisten Ngajar Online/Daring";
+    return "Asisten Ngajar Offline/Luring";
+  }
+
+  return "Kegiatan Lainnya";
+}
+
+function parseDetails(raw, previous = null) {
   const parts = raw.split("|").map((value) => value.trim());
 
-  if (parts.length !== 6 || parts.some((value) => !value)) {
+  if (![6, 7, 8].includes(parts.length) || parts.some((value) => !value)) {
     return null;
   }
 
-  const [kindRaw, title, day, start, end, location] = parts;
+  const [kindRaw, title, day, start, end, location, givenRoom, givenType] =
+    parts;
   const kind = kindRaw.toLowerCase();
   const weekday = parseDay(day);
+  const room = givenRoom ?? previous?.room ?? "-";
+
+  const activity_type =
+    givenType ??
+    (previous?.kind === kind && previous?.activity_type !== "-"
+      ? previous.activity_type
+      : defaultActivityType(kind, title, room));
 
   if (
     !kinds.includes(kind) ||
@@ -30,7 +49,12 @@ function parseDetails(raw) {
     return null;
   }
 
-  if (title.length > 160 || location.length > 120) {
+  if (
+    title.length > 160 ||
+    location.length > 120 ||
+    room.length > 80 ||
+    activity_type.length > 120
+  ) {
     return null;
   }
 
@@ -41,6 +65,8 @@ function parseDetails(raw) {
     start,
     end,
     location,
+    room,
+    activity_type,
   };
 }
 
@@ -53,16 +79,21 @@ export function listSchedules(weekday = null) {
     return `Belum ada jadwal untuk ${label}.`;
   }
 
-  return `JADWAL ${label.toUpperCase()} (${rows.length})\n\n${rows
-    .map(
-      (item) =>
-        `[${item.id}] ${days[item.weekday - 1]} ${item.start_time}–${item.end_time}\n${item.title}\nJenis: ${item.kind} | Lokasi: ${item.location}`,
-    )
-    .join("\n\n")}`;
+  const details = rows.map((item) =>
+    [
+      `[${item.id}] ${days[item.weekday - 1]} ${item.start_time}–${item.end_time} WIB`,
+      `Kegiatan: ${item.title}`,
+      `Lokasi: ${item.location}`,
+      `Ruang: ${item.room}`,
+      `Jenis: ${item.activity_type}`,
+    ].join("\n"),
+  );
+
+  return `JADWAL ${label.toUpperCase()} (${rows.length})\n\n${details.join("\n\n")}`;
 }
 
 export function handleSchedules(input) {
-  const lower = input.toLowerCase().replace(/\s+/g, " ");
+  const lower = input.trim().toLowerCase().replace(/\s+/g, " ");
 
   if (["/jadwal", "/jadwal minggu"].includes(lower)) {
     return listSchedules();
@@ -99,28 +130,40 @@ export function handleSchedules(input) {
       "Jadwal berhasil ditambahkan!",
       "",
       `ID: ${id}`,
-      detail.title,
-      `${days[detail.weekday - 1]} ${detail.start}–${detail.end}`,
+      `Kegiatan: ${detail.title}`,
+      `Hari: ${days[detail.weekday - 1]}`,
+      `Jam: ${detail.start}–${detail.end} WIB`,
       `Lokasi: ${detail.location}`,
+      `Ruang: ${detail.room}`,
+      `Jenis: ${detail.activity_type}`,
       "",
-      "Aku akan mengingatkan pada H-3, H-2, H-1, H-12 jam, dan H-30 menit sebelum jadwal.",
+      "Pengingat H-3, H-2, H-1, H-12 jam, dan H-30 menit aktif.",
     ].join("\n");
   }
 
   const edit = input.match(/^\/jadwal\s+ubah\s+(\d+)\s*\|\s*(.*)$/i);
 
   if (edit) {
-    const detail = parseDetails(edit[2]);
-
-    if (!validId(edit[1]) || !detail) {
-      return "Format perubahan belum sesuai.\n/jadwal ubah 1 | kuliah | Nama Kegiatan | Senin | 07:30 | 09:30 | Lokasi";
+    if (!validId(edit[1])) {
+      return "ID jadwal tidak valid.";
     }
 
-    const updated = schedules.edit(Number(edit[1]), detail);
+    const id = Number(edit[1]);
+    const previous = schedules.get(id);
 
-    return updated
-      ? `Jadwal #${edit[1]} berhasil diubah menjadi ${detail.title}, ${days[detail.weekday - 1]} pukul ${detail.start}.`
-      : "Jadwal tidak ditemukan.";
+    if (!previous) {
+      return `Jadwal #${id} tidak ditemukan. Periksa ID melalui /jadwal.`;
+    }
+
+    const detail = parseDetails(edit[2], previous);
+
+    if (!detail) {
+      return `Format perubahan belum sesuai. Contoh:\n/jadwal ubah ${id} | asisten | Asisten Laboratorium Informatika | Senin | 07:30 | 09:30 | Kalimalang | Online | Asisten Ngajar Online/Daring`;
+    }
+
+    return schedules.edit(id, detail)
+      ? `Jadwal #${id} berhasil diubah.\n\n${detail.title}\n${days[detail.weekday - 1]} ${detail.start}–${detail.end} WIB\nLokasi: ${detail.location}\nRuang: ${detail.room}\nJenis: ${detail.activity_type}`
+      : "Jadwal tidak berhasil diubah.";
   }
 
   const remove = input.match(/^\/jadwal\s+hapus\s+(\d+)$/i);
@@ -132,11 +175,11 @@ export function handleSchedules(input) {
 
     return schedules.delete(Number(remove[1]))
       ? `Jadwal #${remove[1]} berhasil dihapus.`
-      : "ID jadwal tidak ditemukan.";
+      : "Jadwal tidak ditemukan.";
   }
 
   if (/^\/jadwal\b/i.test(input)) {
-    return `Perintah jadwal belum sesuai. Contoh:\n${usage}\n/jadwal ubah 1 | kuliah | Nama Kegiatan | Senin | 07:30 | 09:30 | Lokasi\n/jadwal hapus 1`;
+    return `Perintah jadwal belum sesuai. Contoh:\n${usage}\n/jadwal ubah 1 | asisten | Asisten Laboratorium Informatika | Senin | 07:30 | 09:30 | Kalimalang | Online | Asisten Ngajar Online/Daring\n/jadwal hapus 1`;
   }
 
   return null;

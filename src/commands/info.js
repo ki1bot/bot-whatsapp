@@ -31,16 +31,19 @@ function scheduleInfo() {
     "/jadwal senin",
     "",
     "*Tambah jadwal:*",
-    "/jadwal tambah | kuliah | Basis Data | Senin | 07:30 | 09:30 | Kalimalang",
+    "/jadwal tambah | asisten | Asisten Laboratorium Informatika | Senin | 07:30 | 09:30 | Kalimalang | Online | Asisten Ngajar Online/Daring",
     "",
     "*Ubah jadwal:*",
-    "/jadwal ubah 1 | asisten | Jaga Laboratorium | Senin | 09:30 | 11:30 | Tambun",
+    "/jadwal ubah 1 | asisten | Asisten Jaga Laboratorium Informatika | Senin | 09:30 | 11:30 | Tambun | J322 | Asisten Jaga/Penilaian",
     "",
     "*Hapus jadwal:*",
     "/jadwal hapus 1",
     "",
-    "Jenis yang tersedia: kuliah, asisten, praktikum, lainnya.",
-    "Jadwal berulang setiap minggu. Angka 1 hanya contoh ID; periksa ID sebenarnya melalui /jadwal.",
+    "Urutan input: kategori | kegiatan | hari | jam mulai | jam selesai | lokasi | ruang | jenis.",
+    "Kategori: kuliah, asisten, praktikum, lainnya.",
+    "Jenis dapat diisi sesuai kegiatan, misalnya Mata Kuliah atau Praktikum Offline/Luring.",
+    "Format lama tanpa jenis tetap diterima; bot akan mempertahankan atau menentukan jenis otomatis.",
+    "Jadwal akan berulang setiap minggu. Angka 1 hanya contoh ID.",
   ].join("\n");
 }
 
@@ -67,7 +70,6 @@ function taskInfo() {
     "/tugas hapus 1",
     "",
     "Deadline menggunakan format DD-MM-YYYY HH:mm (WIB).",
-    "Bot hanya menyimpan informasi teks, bukan dokumen tugas.",
     "Angka 1 hanya contoh ID; periksa ID sebenarnya melalui /tugas.",
   ].join("\n");
 }
@@ -77,13 +79,13 @@ function addInfo() {
     "*CARA MENAMBAHKAN DATA*",
     "",
     "*Jadwal:*",
-    "/jadwal tambah | praktikum | Praktikum Pemrograman Web | Kamis | 09:30 | 11:30 | Lab TI",
+    "/jadwal tambah | praktikum | Praktikum Sistem Informasi (PHP) | Kamis | 09:30 | 11:30 | Tambun | J321 | Praktikum Offline/Luring",
     "",
     "*Tugas:*",
     `/tugas tambah | Pemrograman Web | Membuat Website | ${exampleDeadline()}`,
     "",
-    "Pisahkan setiap bagian menggunakan tanda |.",
-    "Lihat /info jadwal atau /info tugas untuk panduan lainnya.",
+    "Pisahkan informasi menggunakan tanda |.",
+    "Lihat /info jadwal atau /info tugas untuk contoh lainnya.",
   ].join("\n");
 }
 
@@ -92,15 +94,15 @@ function editInfo() {
     "*CARA MENGUBAH DATA*",
     "",
     "1. Kirim /jadwal atau /tugas untuk melihat ID.",
-    "2. Kirim perintah ubah dengan ID dan seluruh informasi terbaru.",
+    "2. Kirim perintah ubah beserta seluruh informasi terbaru.",
     "",
     "*Ubah jadwal:*",
-    "/jadwal ubah 1 | kuliah | Basis Data | Selasa | 10:00 | 12:00 | Kalimalang",
+    "/jadwal ubah 1 | kuliah | Konsep Data Mining | Selasa | 09:30 | 11:30 | Kalimalang | J1416B | Mata Kuliah",
     "",
     "*Ubah tugas:*",
     `/tugas ubah 1 | Basis Data | Revisi ERD | ${exampleDeadline()}`,
     "",
-    "Ganti angka 1 dengan ID yang ingin diubah. Seluruh data lama pada entri tersebut akan diganti sesuai perintah.",
+    "Ganti angka 1 dengan ID yang ingin diubah.",
   ].join("\n");
 }
 
@@ -108,8 +110,8 @@ function deleteInfo() {
   return [
     "*CARA MENGHAPUS DATA*",
     "",
-    "1. Lihat ID menggunakan /jadwal atau /tugas.",
-    "2. Kirim perintah penghapusan yang sesuai.",
+    "1. Periksa ID melalui /jadwal atau /tugas.",
+    "2. Kirim perintah hapus yang sesuai.",
     "",
     "*Hapus jadwal:*",
     "/jadwal hapus 1",
@@ -120,7 +122,7 @@ function deleteInfo() {
     "*Tugas sudah dikumpulkan?*",
     "/tugas selesai 1",
     "",
-    "Ganti angka 1 dengan ID yang benar. Menghapus berbeda dari menandai tugas selesai.",
+    "Menghapus tugas berbeda dari menandai tugas selesai.",
   ].join("\n");
 }
 
@@ -134,23 +136,17 @@ export function handleInfoCommand(input) {
   switch (command) {
     case "/info":
       return infoMenu();
-
     case "/info jadwal":
       return scheduleInfo();
-
     case "/info tugas":
       return taskInfo();
-
     case "/info tambah":
       return addInfo();
-
     case "/info ubah":
       return editInfo();
-
     case "/info hapus":
       return deleteInfo();
-
     default:
-      return "Pilihan info belum tersedia. Coba /info untuk melihat semua panduan.";
+      return "Pilihan info belum tersedia. Kirim /info untuk melihat panduan.";
   }
 }

@@ -4,6 +4,7 @@ import { tasks } from "../repositories/tasks.js";
 import { listTasks, handleTasks } from "./tasks.js";
 import { listSchedules, handleSchedules } from "./schedules.js";
 import { handleInfoCommand } from "./info.js";
+import { handleMateriCommand } from "./materi.js";
 
 export function helpText() {
   const exampleDate = nowWib().plus({ days: 14 }).toFormat("dd-MM-yyyy");
@@ -24,9 +25,12 @@ export function helpText() {
     "/hariini",
     "/besok",
     "/jadwal senin",
-    "/jadwal tambah | asisten | Jaga Lab | Senin | 07:30 | 09:30 | Tambun",
-    "/jadwal ubah 1 | kuliah | Basis Data | Selasa | 10:00 | 12:00 | F4",
+    "/jadwal tambah | asisten | Asisten Laboratorium Informatika | Senin | 07:30 | 09:30 | Kalimalang | Online | Asisten Ngajar Online/Daring",
+    "/jadwal ubah 1 | kuliah | Konsep Data Mining | Selasa | 09:30 | 11:30 | Kalimalang | J1416B | Mata Kuliah",
     "/jadwal hapus 1",
+    "",
+    "MATERI KULIAH",
+    "/materi",
     "",
     "DEADLINE",
     "/tugas",
@@ -45,7 +49,6 @@ export function helpText() {
     "Jadwal dan tugas: H-3, H-2, H-1, H-12 jam, dan H-30 menit.",
     `Ringkasan harian: ${settings.dailySummaryTime} WIB.`,
     `Streak api TikTok: setiap hari pukul ${settings.tiktokStreakTime} WIB.`,
-    "",
   ].join("\n");
 }
 
@@ -106,26 +109,20 @@ export function routeCommand(text) {
     return summaryText();
   }
 
-  const infoAnswer = handleInfoCommand(input);
+  const materiAnswer = handleMateriCommand(input);
+  if (materiAnswer !== null) return materiAnswer;
 
-  if (infoAnswer !== null) {
-    return infoAnswer;
-  }
+  const infoAnswer = handleInfoCommand(input);
+  if (infoAnswer !== null) return infoAnswer;
 
   const scheduleAnswer = handleSchedules(input);
-
-  if (scheduleAnswer !== null) {
-    return scheduleAnswer;
-  }
+  if (scheduleAnswer !== null) return scheduleAnswer;
 
   const taskAnswer = handleTasks(input);
-
-  if (taskAnswer !== null) {
-    return taskAnswer;
-  }
+  if (taskAnswer !== null) return taskAnswer;
 
   if (input.startsWith("/")) {
-    return "Maaf, perintah itu belum aku kenal. Ketik /bantuan untuk melihat perintah yang tersedia atau /info untuk panduan pengelolaan data.";
+    return "Maaf, perintah itu belum aku kenal. Ketik /bantuan atau /info untuk melihat panduan.";
   }
 
   return null;

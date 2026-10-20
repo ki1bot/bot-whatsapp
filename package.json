@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "check": "node --check index.js && node --check src/config.js && node --check src/database.js && node --check src/seed.js && node --check src/time.js && node --check src/repositories/tasks.js && node --check src/repositories/schedules.js && node --check src/repositories/delivery.js && node --check src/commands/tasks.js && node --check src/commands/schedules.js && node --check src/commands/info.js && node --check src/commands/index.js && node --check src/scheduler.js && node --check src/whatsapp.js"
+    "check": "node --check index.js && node --check src/config.js && node --check src/database.js && node --check src/seed.js && node --check src/time.js && node --check src/repositories/tasks.js && node --check src/repositories/schedules.js && node --check src/repositories/delivery.js && node --check src/commands/tasks.js && node --check src/commands/schedules.js && node --check src/commands/info.js && node --check src/commands/materi.js && node --check src/commands/index.js && node --check src/scheduler.js && node --check src/whatsapp.js"
   },
   "engines": {
     "node": ">=22"
